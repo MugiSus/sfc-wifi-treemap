@@ -1,7 +1,16 @@
 import { Index, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import CrowdTimeRangeSlider, {
+  maxSelectableIndex,
+  sliderStep,
+} from '@/components/crowd-time-range-slider'
 import { squarify, type TreemapRect } from './treemap'
 
 const STREAM_URL = '/api/crowd/stream'
+const RANGE_URL = '/api/crowd/range'
+const RANGE_DOMAIN_MS = 24 * 60 * 60 * 1000
+const RANGE_REFRESH_MS = 5 * 60 * 1000
+const RANGE_ALIGN_MS = 5 * 60 * 1000
+const DEFAULT_WINDOW_MINUTES = 60
 
 const BUILDING_KEYS = [
   'alpha',
@@ -47,6 +56,30 @@ interface Snapshot {
   readings?: Reading[]
 }
 
+interface RangeReading {
+  buildingKey: string
+  crowdLevels?: (number | null)[]
+  apClientCounts?: (number | null)[]
+}
+
+interface RangeResponse {
+  startTime?: string
+  endTime?: string
+  readings?: RangeReading[]
+}
+
+interface BuildingSeries {
+  levels: (number | null)[]
+  counts: (number | null)[]
+}
+
+interface RangeSeries {
+  startTimeMs: number
+  intervalMs: number
+  pointCount: number
+  buildings: Map<string, BuildingSeries>
+}
+
 interface Viewport {
   width: number
   height: number
@@ -56,6 +89,60 @@ interface CellProps {
   buildingKey: string
   rect: () => TreemapRect<string> | undefined
   reading: () => Reading | undefined
+}
+
+async function fetchRange(startMs: number, endMs: number): Promise<RangeSeries | null> {
+  const query = new URLSearchParams({
+    startTime: new Date(startMs).toISOString(),
+    endTime: new Date(endMs).toISOString(),
+  })
+  const response = await fetch(`${RANGE_URL}?${query}`)
+  if (!response.ok) return null
+  const data = (await response.json()) as RangeResponse
+  const list = data.readings
+  if (!Array.isArray(list) || list.length === 0 || !data.startTime || !data.endTime) return null
+  const pointCount = list[0].crowdLevels?.length ?? 0
+  if (pointCount === 0) return null
+  const startTimeMs = Date.parse(data.startTime)
+  const endTimeMs = Date.parse(data.endTime)
+  const intervalMs = (endTimeMs - startTimeMs) / pointCount
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return null
+  const buildings = new Map<string, BuildingSeries>()
+  for (const reading of list) {
+    buildings.set(reading.buildingKey, {
+      levels: reading.crowdLevels ?? [],
+      counts: reading.apClientCounts ?? [],
+    })
+  }
+  return { startTimeMs, intervalMs, pointCount, buildings }
+}
+
+function averageRange(series: RangeSeries, start: number, end: number): Map<string, Reading> {
+  const result = new Map<string, Reading>()
+  for (const [buildingKey, building] of series.buildings) {
+    let levelSum = 0
+    let levelCount = 0
+    let clientSum = 0
+    let clientCount = 0
+    for (let index = start; index <= end; index += 1) {
+      const level = building.levels[index]
+      if (level != null) {
+        levelSum += level
+        levelCount += 1
+      }
+      const clients = building.counts[index]
+      if (clients != null) {
+        clientSum += clients
+        clientCount += 1
+      }
+    }
+    result.set(buildingKey, {
+      buildingKey,
+      crowdLevel: levelCount === 0 ? null : Math.round(levelSum / levelCount),
+      apClientCount: clientCount === 0 ? null : Math.round(clientSum / clientCount),
+    })
+  }
+  return result
 }
 
 function displayName(key: string): string {
@@ -75,21 +162,40 @@ function statsText(reading: Reading | undefined): string {
   return `${level} · ${count}`
 }
 
+function longestWord(value: string): string {
+  let longest = ''
+  for (const word of value.split(/\s+/)) {
+    if (word.length > longest.length) longest = word
+  }
+  return longest
+}
+
+function textMetrics(rect: TreemapRect<string>, name: string, stats: string) {
+  const width = rect.width - 12
+  const height = rect.height - 12
+  if (width <= 0 || height <= 0) return null
+  const ideal = Math.sqrt(rect.width * rect.height) * 0.15
+  const nameFit = width / (longestWord(name).length * 0.62)
+  const nameSize = Math.max(Math.min(ideal, 64, nameFit, (height - 2) / 1.7825), 8)
+  const statsSize =
+    stats.length === 0
+      ? 0
+      : Math.max(
+          Math.min(nameSize * 0.55, width / (stats.length * 0.62), (height - nameSize * 1.15 - 2) / 1.15),
+          8,
+        )
+  return { nameSize, statsSize }
+}
+
 function Cell(props: CellProps) {
   const name = () => displayName(props.buildingKey)
+  const stats = () => statsText(props.reading())
 
   const metrics = createMemo(() => {
     const rect = props.rect()
-    if (!rect || rect.width < 28 || rect.height < 14) return null
-    const ideal = Math.sqrt(rect.width * rect.height) * 0.15
-    const fit = rect.width / (name().length * 0.62)
-    const nameSize = Math.max(Math.min(ideal, 64, fit), 9)
-    return {
-      rect,
-      nameSize,
-      statsSize: Math.max(nameSize * 0.55, 10),
-      showStats: rect.width >= 96 && rect.height >= 48,
-    }
+    if (!rect || rect.width < 12 || rect.height < 10) return null
+    const value = textMetrics(rect, name(), stats())
+    return value ? { rect, ...value } : null
   })
 
   const cellStyle = () => {
@@ -107,16 +213,25 @@ function Cell(props: CellProps) {
   }
 
   return (
-    <div class="cell" style={cellStyle()}>
+    <div
+      class="cell-transition absolute flex items-center justify-center overflow-hidden rounded-[4px] p-1 text-white"
+      style={cellStyle()}
+    >
       <Show when={metrics()}>
         {(value) => (
-          <div class="cell-label">
-            <span class="cell-name" style={{ 'font-size': `${value().nameSize}px` }}>
+          <div class="flex max-h-full w-full flex-col items-center justify-center gap-[0.15em] text-center leading-[1.15]">
+            <span
+              class="min-h-0 max-w-full overflow-hidden font-semibold tracking-[0.01em] [overflow-wrap:anywhere] [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]"
+              style={{ 'font-size': `${value().nameSize}px` }}
+            >
               {name()}
             </span>
-            <Show when={value().showStats && props.reading()}>
-              <span class="cell-stats" style={{ 'font-size': `${value().statsSize}px` }}>
-                {statsText(props.reading())}
+            <Show when={stats()}>
+              <span
+                class="max-w-full flex-none overflow-hidden tabular-nums whitespace-nowrap opacity-85 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]"
+                style={{ 'font-size': `${value().statsSize}px` }}
+              >
+                {stats()}
               </span>
             </Show>
           </div>
@@ -127,11 +242,44 @@ function Cell(props: CellProps) {
 }
 
 export default function App() {
-  const [readings, setReadings] = createSignal<Map<string, Reading>>(new Map())
+  const [liveReadings, setLiveReadings] = createSignal<Map<string, Reading>>(new Map())
+  const [series, setSeries] = createSignal<RangeSeries | null>(null)
+  const [selection, setSelection] = createSignal<[number, number]>([0, 0])
   const [keys, setKeys] = createSignal<string[]>(BUILDING_KEYS)
   const [viewport, setViewport] = createSignal<Viewport>({
     width: window.innerWidth,
     height: window.innerHeight,
+  })
+
+  const rangeMaxIndex = createMemo(() => {
+    const value = series()
+    return value ? maxSelectableIndex(value.pointCount, sliderStep(value.intervalMs)) : 0
+  })
+
+  const isLive = createMemo(() => {
+    const value = series()
+    if (!value) return true
+    return selection()[1] >= rangeMaxIndex()
+  })
+
+  const readings = createMemo(() => {
+    const value = series()
+    if (!value || isLive()) return liveReadings()
+    const [start, end] = selection()
+    return averageRange(value, start, end)
+  })
+
+  const activity = createMemo(() => {
+    const value = series()
+    if (!value) return []
+    const totals = new Array<number>(value.pointCount).fill(0)
+    for (const building of value.buildings.values()) {
+      for (let index = 0; index < value.pointCount; index += 1) {
+        const clients = building.counts[index]
+        if (clients != null) totals[index] += clients
+      }
+    }
+    return totals
   })
 
   const layout = createMemo(() => {
@@ -160,7 +308,7 @@ export default function App() {
       if (!Array.isArray(list)) return
       const next = new Map<string, Reading>()
       for (const reading of list) next.set(reading.buildingKey, reading)
-      setReadings(next)
+      setLiveReadings(next)
       setKeys((prev) => {
         const added = list.filter((reading) => !prev.includes(reading.buildingKey))
         return added.length === 0 ? prev : [...prev, ...added.map((reading) => reading.buildingKey)]
@@ -169,14 +317,54 @@ export default function App() {
     source.addEventListener('building-crowd-snapshot', handleMessage)
     source.addEventListener('message', handleMessage)
 
+    let disposed = false
+    const loadRange = async () => {
+      const endMs = Math.floor(Date.now() / RANGE_ALIGN_MS) * RANGE_ALIGN_MS
+      const next = await fetchRange(endMs - RANGE_DOMAIN_MS, endMs)
+      if (!next || disposed) return
+      const previous = series()
+      const [previousStart, previousEnd] = selection()
+      setSeries(next)
+      setKeys((prev) => {
+        const added = [...next.buildings.keys()].filter((key) => !prev.includes(key))
+        return added.length === 0 ? prev : [...prev, ...added]
+      })
+      const step = sliderStep(next.intervalMs)
+      const lastIndex = maxSelectableIndex(next.pointCount, step)
+      if (!previous) {
+        const windowPoints = Math.round((DEFAULT_WINDOW_MINUTES * 60_000) / next.intervalMs)
+        const start = Math.max(lastIndex - windowPoints, 0)
+        setSelection([start - (start % step), lastIndex])
+        return
+      }
+      if (previousEnd >= maxSelectableIndex(previous.pointCount, sliderStep(previous.intervalMs))) {
+        const windowLength = previousEnd - previousStart
+        const start = Math.max(lastIndex - windowLength, 0)
+        setSelection([start - (start % step), lastIndex])
+        return
+      }
+      const startTimeMs = previous.startTimeMs + previousStart * previous.intervalMs
+      const endTimeMs = previous.startTimeMs + previousEnd * previous.intervalMs
+      const toIndex = (timeMs: number) => {
+        const snapped = Math.round((timeMs - next.startTimeMs) / next.intervalMs / step) * step
+        return Math.min(Math.max(snapped, 0), lastIndex)
+      }
+      const start = toIndex(startTimeMs)
+      setSelection([start, Math.max(toIndex(endTimeMs), start)])
+    }
+    void loadRange()
+    const refreshTimer = window.setInterval(() => void loadRange(), RANGE_REFRESH_MS)
+
     onCleanup(() => {
+      disposed = true
+      window.clearInterval(refreshTimer)
       window.removeEventListener('resize', handleResize)
       source.close()
     })
   })
 
   return (
-    <div class="treemap">
+    <div class="fixed inset-0 overflow-hidden bg-[#0a0c0f]">
       <Index each={keys()}>
         {(key) => {
           const rect = createMemo(() => layout().get(key()))
@@ -184,6 +372,18 @@ export default function App() {
           return <Cell buildingKey={key()} rect={rect} reading={reading} />
         }}
       </Index>
+      <Show when={series()}>
+        {(value) => (
+          <CrowdTimeRangeSlider
+            startTimeMs={value().startTimeMs}
+            intervalMs={value().intervalMs}
+            pointCount={value().pointCount}
+            activity={activity()}
+            value={selection()}
+            onChange={setSelection}
+          />
+        )}
+      </Show>
     </div>
   )
 }
