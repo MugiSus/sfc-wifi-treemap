@@ -117,22 +117,50 @@ async function fetchRange(startMs: number, endMs: number): Promise<RangeSeries |
   return { startTimeMs, intervalMs, pointCount, buildings }
 }
 
-function averageRange(series: RangeSeries, start: number, end: number): Map<string, Reading> {
+function totalPoints(series: RangeSeries): number {
+  return series.pointCount + 1
+}
+
+function lastSelectableIndex(series: RangeSeries): number {
+  return maxSelectableIndex(totalPoints(series), sliderStep(series.intervalMs))
+}
+
+function aggregateRange(
+  series: RangeSeries,
+  start: number,
+  end: number,
+  live: Map<string, Reading>,
+): Map<string, Reading> {
   const result = new Map<string, Reading>()
-  for (const [buildingKey, building] of series.buildings) {
+  const buildingKeys = new Set<string>([...series.buildings.keys(), ...live.keys()])
+  for (const buildingKey of buildingKeys) {
+    const building = series.buildings.get(buildingKey)
     let levelSum = 0
     let levelCount = 0
     let clientSum = 0
     let clientCount = 0
     for (let index = start; index <= end; index += 1) {
-      const level = building.levels[index]
-      if (level != null) {
-        levelSum += level
+      if (building && index < series.pointCount) {
+        const level = building.levels[index]
+        if (level != null) {
+          levelSum += level
+          levelCount += 1
+        }
+        const clients = building.counts[index]
+        if (clients != null) {
+          clientSum += clients
+          clientCount += 1
+        }
+        continue
+      }
+      const reading = live.get(buildingKey)
+      if (!reading) continue
+      if (reading.crowdLevel != null) {
+        levelSum += reading.crowdLevel
         levelCount += 1
       }
-      const clients = building.counts[index]
-      if (clients != null) {
-        clientSum += clients
+      if (reading.apClientCount != null) {
+        clientSum += reading.apClientCount
         clientCount += 1
       }
     }
@@ -251,34 +279,28 @@ export default function App() {
     height: window.innerHeight,
   })
 
-  const rangeMaxIndex = createMemo(() => {
-    const value = series()
-    return value ? maxSelectableIndex(value.pointCount, sliderStep(value.intervalMs)) : 0
-  })
-
-  const isLive = createMemo(() => {
-    const value = series()
-    if (!value) return true
-    return selection()[1] >= rangeMaxIndex()
-  })
-
   const readings = createMemo(() => {
     const value = series()
-    if (!value || isLive()) return liveReadings()
+    if (!value) return liveReadings()
     const [start, end] = selection()
-    return averageRange(value, start, end)
+    return aggregateRange(value, start, end, liveReadings())
   })
 
   const activity = createMemo(() => {
     const value = series()
     if (!value) return []
-    const totals = new Array<number>(value.pointCount).fill(0)
+    const totals = new Array<number>(totalPoints(value)).fill(0)
     for (const building of value.buildings.values()) {
       for (let index = 0; index < value.pointCount; index += 1) {
         const clients = building.counts[index]
         if (clients != null) totals[index] += clients
       }
     }
+    let liveTotal = 0
+    for (const reading of liveReadings().values()) {
+      if (reading.apClientCount != null) liveTotal += reading.apClientCount
+    }
+    totals[value.pointCount] = liveTotal
     return totals
   })
 
@@ -330,14 +352,14 @@ export default function App() {
         return added.length === 0 ? prev : [...prev, ...added]
       })
       const step = sliderStep(next.intervalMs)
-      const lastIndex = maxSelectableIndex(next.pointCount, step)
+      const lastIndex = maxSelectableIndex(totalPoints(next), step)
       if (!previous) {
         const windowPoints = Math.round((DEFAULT_WINDOW_MINUTES * 60_000) / next.intervalMs)
         const start = Math.max(lastIndex - windowPoints, 0)
         setSelection([start - (start % step), lastIndex])
         return
       }
-      if (previousEnd >= maxSelectableIndex(previous.pointCount, sliderStep(previous.intervalMs))) {
+      if (previousEnd >= lastSelectableIndex(previous)) {
         const windowLength = previousEnd - previousStart
         const start = Math.max(lastIndex - windowLength, 0)
         setSelection([start - (start % step), lastIndex])
@@ -377,7 +399,7 @@ export default function App() {
           <CrowdTimeRangeSlider
             startTimeMs={value().startTimeMs}
             intervalMs={value().intervalMs}
-            pointCount={value().pointCount}
+            pointCount={totalPoints(value())}
             activity={activity()}
             value={selection()}
             onChange={setSelection}
