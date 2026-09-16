@@ -26,9 +26,10 @@ export function buildAccessPointHierarchy(clients: WifiClient[]) {
 
   for (const client of clients) {
     const name = client.accessPointName
-    const location = /^ap-(.+?)-(\d+f|b\d+|bf|rf)(?:-|$)/.exec(name)
-    const building = client.buildingKey ?? location?.[1] ?? 'unknown'
-    const floor = location?.[2] ?? 'TBD'
+    const apLocation = /^ap-(.+?)-(\d+f|b\d+|bf|rf)(?:-|$)/.exec(name)
+    const deltaLocation = /^delta-(\d+f|b\d+|bf|rf)(?:-|$)/.exec(name)
+    const building = client.buildingKey ?? apLocation?.[1] ?? (deltaLocation ? 'delta' : 'unknown')
+    const floor = apLocation?.[2] ?? deltaLocation?.[1] ?? 'TBD'
     const buildingId = JSON.stringify([building])
     const floorId = JSON.stringify([building, floor])
     const apId = JSON.stringify([building, floor, name])
