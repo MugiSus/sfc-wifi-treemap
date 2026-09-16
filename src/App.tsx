@@ -3,6 +3,7 @@ import { buildAccessPointHierarchy, layoutAccessPoints, type WifiSnapshot } from
 
 const WIFI_URL = '/api/wifi/clients/list'
 const REFRESH_MS = 5 * 60 * 1000
+const refreshBucket = (time: number) => Math.floor(time / REFRESH_MS)
 const RED_CLIENTS = 80
 const TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
   timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -50,11 +51,26 @@ export default function App() {
       }
     }
 
+    let lastBucket = refreshBucket(Date.now())
     void load()
-    const refreshTimer = window.setInterval(() => void load(), REFRESH_MS)
+
+    let refreshTimer = 0
+    const scheduleRefresh = () => {
+      const delay = REFRESH_MS - (Date.now() % REFRESH_MS) + 1000
+      refreshTimer = window.setTimeout(() => {
+        const bucket = refreshBucket(Date.now())
+        if (bucket !== lastBucket) {
+          lastBucket = bucket
+          void load()
+        }
+        scheduleRefresh()
+      }, delay)
+    }
+    scheduleRefresh()
+
     onCleanup(() => {
       controller.abort()
-      window.clearInterval(refreshTimer)
+      window.clearTimeout(refreshTimer)
       window.removeEventListener('resize', handleResize)
     })
   })
