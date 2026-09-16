@@ -3,6 +3,7 @@ import { buildAccessPointHierarchy, layoutAccessPoints, type WifiSnapshot } from
 
 const WIFI_URL = '/api/wifi/clients/list'
 const REFRESH_MS = 5 * 60 * 1000
+const RED_CLIENTS = 80
 const TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
   timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
 })
@@ -22,7 +23,6 @@ export default function App() {
   })
   const nodeIds = createMemo(() => layout().map((node) => node.data.id))
   const nodes = createMemo(() => new Map(layout().map((node) => [node.data.id, node])))
-  const maximum = createMemo(() => Math.max(1, ...layout().map((node) => node.data.clients)))
 
   onMount(() => {
     const handleResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight })
@@ -70,7 +70,7 @@ export default function App() {
           const name = () => {
             const data = node().data
             if (data.kind !== 'building') return data.name
-            return data.name === 'unknown' ? '棟不明' : data.name.charAt(0).toUpperCase() + data.name.slice(1)
+            return data.name === 'unknown' ? 'TBD' : data.name.charAt(0).toUpperCase() + data.name.slice(1)
           }
           const title = () => `${node().ancestors().reverse().slice(1).map((part) => part.data.name).join(' / ')} · ${node().value}`
           const fontSize = () => Math.max(8, Math.min(
@@ -89,7 +89,7 @@ export default function App() {
                 left: `${node().x0}px`, top: `${node().y0}px`,
                 width: `${width()}px`, height: `${height()}px`,
                 'background-color': isAp()
-                  ? `hsl(${130 * (1 - node().data.clients / maximum())} 68% 41%)`
+                  ? `hsl(${130 * (1 - Math.min(node().data.clients, RED_CLIENTS) / RED_CLIENTS)} 68% 41%)`
                   : node().depth === 1 ? '#1d232b' : '#303741',
               }}
             >
