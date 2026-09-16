@@ -1,4 +1,4 @@
-import { stratify, treemap } from 'd3-hierarchy'
+import { stratify, treemap, treemapResquarify } from 'd3-hierarchy'
 
 export interface WifiClient {
   accessPointName: string
@@ -59,10 +59,18 @@ export function buildAccessPointHierarchy(clients: WifiClient[]) {
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id!.localeCompare(b.id!))
 }
 
+export const BUILDING_HEADER_HEIGHT = 20
+export const FLOOR_HEADER_HEIGHT = 16
+export const TREEMAP_PADDING = 3
+const TREEMAP_GAP = 2
+
+// Lay out in screen pixels so rounding never gets magnified by CSS scaling.
 export const layoutAccessPoints = treemap<AccessPointNode>()
-  .paddingInner(2)
-  .paddingOuter(3)
+  .tile(treemapResquarify)
+  .round(true)
+  .paddingInner(TREEMAP_GAP)
+  .paddingOuter(TREEMAP_PADDING)
   .paddingTop((node) => {
-    if (node.depth === 0 || node.x1 - node.x0 < 40 || node.y1 - node.y0 < 48) return 3
-    return node.depth === 1 ? 20 : 16
+    if (node.depth === 0 || node.x1 - node.x0 < 40 || node.y1 - node.y0 < 48) return TREEMAP_PADDING
+    return node.depth === 1 ? BUILDING_HEADER_HEIGHT : FLOOR_HEADER_HEIGHT
   })
