@@ -1,6 +1,6 @@
-# Wi-Fi client exclusions
+# Per-AP connected-client count snapshot
 
-The Worker samples the API at 00:15 JST to refresh the client-ID exclusion list and at 03:00 JST to save per-AP client counts as TOML. Both records are held in a private Cloudflare KV namespace; client IDs and snapshots are not committed to Git.
+The Worker runs one scheduled job at 03:00 JST. It reads the Wi-Fi clients API, groups connected clients by `(buildingKey, accessPointName)`, and stores the per-AP client counts as TOML in a private Cloudflare KV namespace. The frontend reads the latest snapshot from `/api/wifi/ap-counts/latest.toml`.
 
 ## Cloudflare setup
 
@@ -10,24 +10,21 @@ Create a KV namespace:
 pnpm exec wrangler kv namespace create WIFI_STATE
 ```
 
-Copy the returned namespace ID into `wrangler.jsonc`, replacing `REPLACE_WITH_KV_NAMESPACE_ID`, then deploy:
+Set the returned namespace ID in `wrangler.jsonc`, then deploy:
 
 ```sh
 pnpm deploy
 ```
 
-The configured cron expressions are `15 15 * * *` UTC (00:15 JST) and `0 18 * * *` UTC (03:00 JST). Cloudflare cron schedules are UTC. A newly added trigger can take several minutes to propagate.
+The only configured Cron Trigger is `0 18 * * *` UTC (03:00 JST). Cloudflare cron schedules use UTC. A newly added or changed trigger can take several minutes to propagate.
 
-## Sampling and exclusion behavior
+## Snapshot behavior
 
-- Every successful scheduled run replaces the exclusion set with IDs present at that observation. Those clients are omitted from subsequent live `/api/wifi/clients/list` responses.
-- This deliberately starts with the quick experiment requested. It excludes a client ID after one 00:15 sighting, not after proving 48 hours of continuous connection. If the endpoint still returns the previous JST day's snapshot, the Worker rejects it and leaves the previous exclusion set unchanged.
-- The API calls this field `randomId` and documents it as stable within the client's observation day in Japan. It is not a cross-day device identifier, so this first version cannot establish that the same device remained connected for 48 hours. The exclusion set is replaced daily because yesterday's IDs are not expected to match today's.
-- A failed fetch, non-2xx API response, malformed response, stale observation, or missing string `clients[].randomId` fails the scheduled invocation and leaves the last valid exclusion list unchanged. Inspect Worker logs after the first run.
-
-## 03:00 AP-count snapshot
-
-At 03:00 JST, the Worker reads the raw client list, counts clients grouped by `(buildingKey, accessPointName)`, and stores a dated TOML record in KV with a 90-day TTL. It also updates the latest snapshot. The frontend fetches `/api/wifi/ap-counts/latest.toml`, parses that TOML, and uses the AP counts for the treemap. This is a once-daily snapshot; refreshing the frontend does not make the counts live. `measured_at` records the API observation time, which may differ from the 03:00 trigger time. The API lists connected clients rather than the AP inventory, so APs with zero connected clients are absent from this snapshot.
+- A successful run writes a dated TOML record with a 90-day TTL and updates the latest snapshot.
+- `measured_at` is the observation time supplied by the API; it may differ from the scheduled time.
+- The collector refuses an observation whose JST date differs from the scheduled date. On an upstream error, invalid response, or stale observation, it leaves the last valid snapshot unchanged.
+- The source API lists connected clients, so APs with zero connected clients are absent from the snapshot.
+- The regular `/api/wifi/clients/list` proxy passes the upstream response through without filtering client IDs.
 
 The TOML format is:
 
@@ -41,8 +38,4 @@ building_key = "kappa"
 client_count = 12
 ```
 
-If the API fails or its observation is from another JST day, the collector leaves the last valid TOML snapshot unchanged.
-
-## API contract to confirm
-
-The UI currently uses top-level `measuredAt` and each client's `accessPointName` and optional `buildingKey`. The API documents each client as also having `randomId`, `measuredAt`, `rotatedAt`, and `areaKeys`. The Worker uses `randomId` for sampling and filtering. The API also says the merged response may include processed observations while newer snapshots are still pending, and that snapshots are normally complete within ten minutes of the newest raw observation; inspect the returned timestamps and Worker logs when validating the scheduled sample.
+The API returns top-level `measuredAt` and a `clients` array containing `accessPointName`, optional `buildingKey`, and other client fields. The collector only uses the AP name and building key to count records. The API may return its latest processed observation while a newer snapshot is still pending; inspect `measuredAt` and Worker logs when validating the scheduled run.

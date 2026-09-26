@@ -9,9 +9,7 @@ const API_PREFIX = '/api';
 const API_ORIGIN = 'https://api.dtc.wide.ad.jp';
 const CLIENTS_PATH = '/wifi/clients/list';
 const AP_COUNTS_PATH = '/api/wifi/ap-counts/latest.toml';
-const EXCLUDED_KEY = 'excluded-ids';
 const AP_COUNTS_LATEST_KEY = 'ap-counts:latest.toml';
-const EXCLUSION_CRON = '15 15 * * *';
 const AP_COUNTS_CRON = '0 18 * * *';
 const AP_COUNTS_TTL_SECONDS = 90 * 24 * 60 * 60;
 
@@ -22,21 +20,6 @@ function dateInTokyo(time: number): string {
     month: '2-digit',
     day: '2-digit',
   }).format(time);
-}
-
-function idsFrom(snapshot: WifiSnapshot): Set<string> {
-  const ids = new Set<string>();
-
-  for (const client of snapshot.clients) {
-    if (typeof client.randomId !== 'string' || client.randomId.length === 0) {
-      throw new Error(
-        'Wi-Fi client response is missing a string "randomId" field',
-      );
-    }
-    ids.add(client.randomId);
-  }
-
-  return ids;
 }
 
 async function readUpstream(): Promise<WifiSnapshot> {
@@ -54,25 +37,6 @@ async function readUpstream(): Promise<WifiSnapshot> {
   }
 
   return body;
-}
-
-async function recordDailySnapshot(
-  env: Env,
-  scheduledTime: number,
-): Promise<void> {
-  const snapshot = await readUpstream();
-  const date = dateInTokyo(scheduledTime);
-  const measuredTime = Date.parse(snapshot.measuredAt);
-  if (!Number.isFinite(measuredTime) || dateInTokyo(measuredTime) !== date) {
-    throw new Error(
-      `Refusing stale Wi-Fi snapshot: expected a ${date} JST observation, got ${snapshot.measuredAt}`,
-    );
-  }
-  const current = idsFrom(snapshot);
-
-  // randomId rotates by observation day, so only today's snapshot is useful.
-  await env.WIFI_STATE.put(EXCLUDED_KEY, JSON.stringify([...current]));
-  console.log(`Stored ${current.size} client IDs observed for ${date} JST.`);
 }
 
 interface AccessPointCount {
@@ -143,7 +107,7 @@ async function recordApCountSnapshot(
   const measuredTime = Date.parse(snapshot.measuredAt);
   if (!Number.isFinite(measuredTime) || dateInTokyo(measuredTime) !== date) {
     throw new Error(
-      `Refusing stale AP-count snapshot: expected a ${date} JST observation, got ${snapshot.measuredAt}`,
+      `Refusing stale per-AP connection-count snapshot: expected a ${date} JST observation, got ${snapshot.measuredAt}`,
     );
   }
 
@@ -153,7 +117,7 @@ async function recordApCountSnapshot(
   });
   await env.WIFI_STATE.put(AP_COUNTS_LATEST_KEY, toml);
   console.log(
-    `Stored AP counts for ${date} JST (${snapshot.clients.length} clients).`,
+    `Stored per-AP connected-client counts for ${date} JST (${snapshot.clients.length} clients).`,
   );
 }
 
@@ -187,31 +151,11 @@ const worker: ExportedHandler<Env> = {
       method: request.method,
       headers: request.headers,
     });
-    if (!response.ok || upstreamPath !== CLIENTS_PATH) return response;
-
-    const body: unknown = await response.clone().json();
-    if (!isWifiSnapshot(body)) return response;
-
-    const excluded = new Set(
-      (await env.WIFI_STATE.get<string[]>(EXCLUDED_KEY, 'json')) ?? [],
-    );
-    const filtered: WifiSnapshot = {
-      ...body,
-      clients: body.clients.filter(
-        (client) => !client.randomId || !excluded.has(client.randomId),
-      ),
-    };
-
-    return Response.json(filtered, {
-      status: response.status,
-      headers: { 'cache-control': 'no-store' },
-    });
+    return response;
   },
 
   async scheduled(controller, env) {
-    if (controller.cron === EXCLUSION_CRON) {
-      await recordDailySnapshot(env, controller.scheduledTime);
-    } else if (controller.cron === AP_COUNTS_CRON) {
+    if (controller.cron === AP_COUNTS_CRON) {
       await recordApCountSnapshot(env, controller.scheduledTime);
     }
   },
