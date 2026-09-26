@@ -14,9 +14,9 @@ import {
   TREEMAP_PADDING,
   type WifiSnapshot,
 } from './treemap';
-import { isWifiSnapshot } from './types/wifi';
+import { parseApCountSnapshotToml } from './types/ap-count-snapshot';
 
-const WIFI_URL = '/api/wifi/clients/list';
+const WIFI_URL = '/api/wifi/ap-counts/latest.toml';
 const REFRESH_MS = 5 * 60 * 1000;
 const refreshBucket = (time: number) => Math.floor(time / REFRESH_MS);
 const RED_CLIENTS = 80;
@@ -122,9 +122,7 @@ export default function App() {
           cache: 'no-store',
         });
         if (!response.ok) throw new Error(`Wi-Fi API: ${response.status}`);
-        const next: unknown = await response.json();
-        if (!isWifiSnapshot(next))
-          throw new Error('Wi-Fi API returned an invalid response');
+        const next = parseApCountSnapshotToml(await response.text());
         if (controller.signal.aborted) return;
         setSnapshot(next);
         setError(false);
