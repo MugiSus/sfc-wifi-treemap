@@ -7,6 +7,12 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  }
+    "run_worker_first": ["/api/*"],
+  },
+  "kv_namespaces": [
+    { "binding": "WIFI_STATE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" },
+  ],
+  "triggers": {
+    "crons": ["15 15 * * *"],
+  },
 }
