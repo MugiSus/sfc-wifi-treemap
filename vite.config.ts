@@ -1,7 +1,7 @@
-import { fileURLToPath } from 'node:url'
-import { defineConfig, type ProxyOptions } from 'vite'
-import solid from 'vite-plugin-solid'
-import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type ProxyOptions } from 'vite';
+import solid from 'vite-plugin-solid';
+import tailwindcss from '@tailwindcss/vite';
 
 const proxy: Record<string, ProxyOptions> = {
   '/api': {
@@ -9,7 +9,7 @@ const proxy: Record<string, ProxyOptions> = {
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/api/, ''),
   },
-}
+};
 
 export default defineConfig({
   plugins: [solid(), tailwindcss()],
@@ -20,4 +20,4 @@ export default defineConfig({
   },
   server: { proxy },
   preview: { proxy },
-})
+});

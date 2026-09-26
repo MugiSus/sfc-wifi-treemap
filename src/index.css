@@ -2,7 +2,8 @@
 
 @theme {
   --font-sans:
-    'Inter', 'Helvetica Neue', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+    'Inter', 'Helvetica Neue', 'Hiragino Sans', 'Noto Sans JP', system-ui,
+    sans-serif;
 
   --color-background: #0a0c0f;
   --color-foreground: #f4f4f5;
