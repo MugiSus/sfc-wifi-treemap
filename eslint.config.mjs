@@ -40,7 +40,15 @@ export default defineConfig(
       '@typescript-eslint/no-unused-vars': 'off',
       'tailwindcss/no-custom-classname': [
         'warn',
-        { whitelist: ['treemap-scene', 'treemap-cell', 'treemap-label'] },
+        {
+          whitelist: [
+            'hierarchy-treemap',
+            'cell-transition',
+            'treemap-scene',
+            'treemap-cell',
+            'treemap-label',
+          ],
+        },
       ],
       'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': [

@@ -1,9 +1,10 @@
-import { stratify, treemap, treemapResquarify } from 'd3-hierarchy';
+import type { TreemapDatum } from './components/hierarchy-treemap/layout';
+
 import type { WifiClient } from './types/wifi';
 
 export type { WifiClient, WifiSnapshot } from './types/wifi';
 
-export interface AccessPointNode {
+interface AccessPointNode {
   id: string;
   parentId: string | undefined;
   name: string;
@@ -11,7 +12,7 @@ export interface AccessPointNode {
   clients: number;
 }
 
-export function buildAccessPointHierarchy(clients: WifiClient[]) {
+export function buildAccessPointData(clients: WifiClient[]): TreemapDatum[] {
   const nodes = new Map<string, AccessPointNode>();
   nodes.set('campus', {
     id: 'campus',
@@ -66,27 +67,20 @@ export function buildAccessPointHierarchy(clients: WifiClient[]) {
     }
   }
 
-  return stratify<AccessPointNode>()([...nodes.values()])
-    .sum((node) => node.clients)
-    .sort(
-      (a, b) =>
-        (b.value ?? 0) - (a.value ?? 0) || a.data.id.localeCompare(b.data.id),
-    );
+  return [...nodes.values()].map((node) => ({
+    id: node.id,
+    parentId: node.parentId,
+    name: node.name,
+    label:
+      node.kind === 'building'
+        ? node.name === 'unknown'
+          ? 'TBD'
+          : node.name.charAt(0).toUpperCase() + node.name.slice(1)
+        : undefined,
+    value: node.clients,
+    color:
+      node.kind === 'ap'
+        ? `hsl(${130 * (1 - Math.min(node.clients, 80) / 80)} 68% 41%)`
+        : undefined,
+  }));
 }
-
-export const BUILDING_HEADER_HEIGHT = 20;
-export const FLOOR_HEADER_HEIGHT = 16;
-export const TREEMAP_PADDING = 3;
-const TREEMAP_GAP = 2;
-
-// Lay out in screen pixels so rounding never gets magnified by CSS scaling.
-export const layoutAccessPoints = treemap<AccessPointNode>()
-  .tile(treemapResquarify)
-  .round(true)
-  .paddingInner(TREEMAP_GAP)
-  .paddingOuter(TREEMAP_PADDING)
-  .paddingTop((node) => {
-    if (node.depth === 0 || node.x1 - node.x0 < 40 || node.y1 - node.y0 < 48)
-      return TREEMAP_PADDING;
-    return node.depth === 1 ? BUILDING_HEADER_HEIGHT : FLOOR_HEADER_HEIGHT;
-  });
