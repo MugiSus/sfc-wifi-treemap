@@ -2,6 +2,8 @@ export interface WifiClient {
   accessPointName: string;
   buildingKey?: string;
   randomId?: string;
+  autoExcluded?: boolean;
+  blacklisted?: boolean;
 }
 
 export interface WifiSnapshot {
@@ -21,7 +23,9 @@ export function isWifiClient(value: unknown): value is WifiClient {
 
   return (
     (!('buildingKey' in value) || typeof value.buildingKey === 'string') &&
-    (!('randomId' in value) || typeof value.randomId === 'string')
+    (!('randomId' in value) || typeof value.randomId === 'string') &&
+    (!('autoExcluded' in value) || typeof value.autoExcluded === 'boolean') &&
+    (!('blacklisted' in value) || typeof value.blacklisted === 'boolean')
   );
 }
 

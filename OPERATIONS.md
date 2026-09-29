@@ -1,6 +1,12 @@
 # Per-AP connected-client count snapshot
 
-The Worker runs one scheduled job at 03:00 JST. It reads the Wi-Fi clients API, groups connected clients by `(buildingKey, accessPointName)`, and stores the per-AP client counts as TOML in a private Cloudflare KV namespace. The frontend reads the latest snapshot from `/api/wifi/ap-counts/latest.toml`.
+The frontend reads `/api/wifi/clients/list` and counts clients per AP after removing clients whose upstream `autoExcluded` or `blacklisted` flag is true. It keeps the existing building → floor → AP treemap, labels, colors, and observation-time / count footer. No additional UI is added. It does not subtract the local 03:00 AP-count baseline because the upstream flags already classify excluded clients. Invalid responses, missing flags, or failed requests retain the previous observation using the existing failed-update behavior.
+
+The `/crowd` endpoint returns area totals and cannot provide AP counts. The updated Wi-Fi client list exposes the same exclusion flags together with AP names, allowing this app to use upstream exclusion processing without replacing AP tiles with floor tiles.
+
+The Worker still runs its existing scheduled job at 03:00 JST. It groups all connected clients by `(buildingKey, accessPointName)` and stores per-AP counts as TOML in a private Cloudflare KV namespace. `/api/wifi/ap-counts/latest.toml` remains available, but is not used by this frontend.
+
+API reference: https://api.dtc.wide.ad.jp/#tag/wifi
 
 ## Cloudflare setup
 

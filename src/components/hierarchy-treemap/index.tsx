@@ -72,11 +72,17 @@ export default function HierarchyTreemap(props: HierarchyTreemapProps) {
   const layoutNodes = createTreemapLayout();
   const layout = createMemo(() => {
     const { width, height } = viewport();
-    if (width <= 0 || height <= 0) return [];
-    return layoutNodes
-      .size([width * scale(), height * scale()])(hierarchy())
-      .descendants()
-      .slice(1);
+    if (
+      width <= 0 ||
+      height <= 0 ||
+      props.data.length === 0 ||
+      (hierarchy().value ?? 0) <= 0
+    )
+      return [];
+    const root = layoutNodes.size([width * scale(), height * scale()])(
+      hierarchy(),
+    );
+    return root.children?.length ? root.descendants().slice(1) : [root];
   });
   const nodeIds = createMemo(() => layout().map((node) => node.data.id));
   const nodes = createMemo(

@@ -15,7 +15,8 @@
     "lint:code": "eslint src worker *.config.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\" \"worker/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\" wrangler.jsonc package.json",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" \"worker/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\" wrangler.jsonc package.json",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check"
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check",
+    "test": "node tests/wifi.test.mjs"
   },
   "dependencies": {
     "@kobalte/core": "0.13.7",

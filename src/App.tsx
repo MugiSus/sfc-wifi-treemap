@@ -1,9 +1,8 @@
 import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import HierarchyTreemap from './components/hierarchy-treemap';
 import { buildAccessPointData, type WifiSnapshot } from './treemap';
-import { parseApCountSnapshotToml } from './types/ap-count-snapshot';
+import { loadWifiSnapshot } from './lib/load-wifi-snapshot';
 
-const WIFI_URL = '/api/wifi/ap-counts/latest.toml';
 const REFRESH_MS = 5 * 60 * 1000;
 const refreshBucket = (time: number) => Math.floor(time / REFRESH_MS);
 const TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
@@ -29,12 +28,7 @@ export default function App() {
       if (loading) return;
       loading = true;
       try {
-        const response = await fetch(WIFI_URL, {
-          signal: controller.signal,
-          cache: 'no-store',
-        });
-        if (!response.ok) throw new Error(`Wi-Fi API: ${response.status}`);
-        const next = parseApCountSnapshotToml(await response.text());
+        const next = await loadWifiSnapshot(controller.signal);
         if (controller.signal.aborted) return;
         setSnapshot(next);
         setError(false);

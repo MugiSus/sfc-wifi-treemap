@@ -12,11 +12,11 @@ export interface TreemapDatum {
   name: string;
   /** 画面上の名前だけを上書きします。ツールチップにはnameを使います。 */
   label?: string;
-  /** 末端の面積の重み。親では省略し、D3が子の合計を計算します。 */
+  /** 末端の面積の重み。親では省略し、D3が子の合計を計算します。合計が0の枝は表示しません。 */
   value?: number;
   /**
    * 表示値の上書き。省略時は合計値を表示します。
-   * ゼロ・未取得でも場所を残す場合はvalueを1にし、'0'または'–'を指定します。
+   * 未取得など数値で表せない場所を表示する場合に指定します。
    */
   valueLabel?: string;
   /** 矩形の色。省略時、末端は灰色、見出しは深さに応じた背景色です。 */
@@ -27,14 +27,21 @@ export const TREEMAP_PADDING = 3;
 
 /** フラットな配列を階層化し、値の降順・同値ならid順に並べます。空配列も受け取れます。 */
 export function buildTreemapHierarchy(data: TreemapDatum[]) {
-  return stratify<TreemapDatum>()(
+  const root = stratify<TreemapDatum>()(
     data.length ? data : [{ id: 'root', name: '' }],
-  )
-    .sum((node) => node.value ?? 0)
-    .sort(
-      (a, b) =>
-        (b.value ?? 0) - (a.value ?? 0) || a.data.id.localeCompare(b.data.id),
-    );
+  ).sum((node) => node.value ?? 0);
+  root.eachAfter((node) => {
+    if (node.children) {
+      const positiveChildren = node.children.filter(
+        (child) => (child.value ?? 0) > 0,
+      );
+      node.children = positiveChildren.length ? positiveChildren : undefined;
+    }
+  });
+  return root.sort(
+    (a, b) =>
+      (b.value ?? 0) - (a.value ?? 0) || a.data.id.localeCompare(b.data.id),
+  );
 }
 
 /**

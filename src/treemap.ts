@@ -13,6 +13,7 @@ interface AccessPointNode {
 }
 
 export function buildAccessPointData(clients: WifiClient[]): TreemapDatum[] {
+  if (clients.length === 0) return [];
   const nodes = new Map<string, AccessPointNode>();
   nodes.set('campus', {
     id: 'campus',
