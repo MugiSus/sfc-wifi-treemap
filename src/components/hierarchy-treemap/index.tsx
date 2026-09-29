@@ -76,7 +76,9 @@ export default function HierarchyTreemap(props: HierarchyTreemapProps) {
   let container!: HTMLElement;
   const measurement = document.createElement('canvas').getContext('2d')!;
   let viewSize = { width: 0, height: 0 };
-  const [fontFamily, setFontFamily] = createSignal('sans-serif');
+  const [fontFamily, setFontFamily] = createSignal('sans-serif', {
+    equals: false,
+  });
   const [transform, setTransform] = createSignal(zoomIdentity);
   const scale = createMemo(() => transform().k);
   const [dragging, setDragging] = createSignal(false);
@@ -157,7 +159,10 @@ export default function HierarchyTreemap(props: HierarchyTreemapProps) {
   const nodeIds = createMemo(() => [...nodes().keys()]);
 
   onMount(() => {
-    setFontFamily(getComputedStyle(container).fontFamily);
+    const updateFontFamily = () =>
+      setFontFamily(getComputedStyle(container).fontFamily);
+    updateFontFamily();
+    document.fonts.addEventListener('loadingdone', updateFontFamily);
     let zoomFrame = 0;
     let endZoomFrame = 0;
     let pendingTransform = zoomIdentity;
@@ -208,6 +213,7 @@ export default function HierarchyTreemap(props: HierarchyTreemapProps) {
     resize.observe(container);
 
     onCleanup(() => {
+      document.fonts.removeEventListener('loadingdone', updateFontFamily);
       cancelAnimationFrame(zoomFrame);
       cancelAnimationFrame(endZoomFrame);
       surface.on('.zoom', null);
