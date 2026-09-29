@@ -25,7 +25,8 @@
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "solid-js": "^1.9.15",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260915.1",

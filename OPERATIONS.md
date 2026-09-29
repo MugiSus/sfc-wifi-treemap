@@ -1,12 +1,20 @@
-# Per-AP connected-client count snapshot
+# Crowd floor treemap and per-AP snapshots
 
-The frontend reads `/api/wifi/clients/list` and counts clients per AP after removing clients whose upstream `autoExcluded` or `blacklisted` flag is true. It keeps the existing building → floor → AP treemap, labels, colors, and observation-time / count footer. No additional UI is added. It does not subtract the local 03:00 AP-count baseline because the upstream flags already classify excluded clients. Invalid responses, missing flags, or failed requests retain the previous observation using the existing failed-update behavior.
+The frontend reads `/api/crowd?groupBy=floor` to obtain all registered floor counts in one request. It also reads `/api/areas` to validate the returned floors and building membership. The existing development and production proxies forward these paths to `https://api.dtc.wide.ad.jp/crowd?groupBy=floor` and `/areas`.
 
-The `/crowd` endpoint returns area totals and cannot provide AP counts. The updated Wi-Fi client list exposes the same exclusion flags together with AP names, allowing this app to use upstream exclusion processing without replacing AP tiles with floor tiles.
+The treemap shows building → floor, using `clientCount` for tile area, color, and the footer total. This is the upstream device count after exclusions, not an estimated people count. The app does not subtract `excludedClientCount` or the local 03:00 AP-count baseline again. It preserves the D3 zoom, pan, pinch, fixed spacing, and five-minute refresh schedule. Floor leaf labels use the exact `areaKey` returned by `/crowd`, such as `iota-1f`, `alpha-bf`, `mu-b1`, and `sigma-rf`, without parsing or shortening.
+
+With `groupBy=floor`, buildings without registered floors (currently `delta` and `pe-buildings`) are omitted by the API. The displayed total covers the returned floors only. Building totals and east/west areas are not added, avoiding double counting. AP-level tiles are no longer shown.
+
+The request omits `time` to use the latest fully processed observation. The footer shows `measuredAt`, with a processing indicator when `processingPending` is true. A zero count is a valid empty observation; a `null` count is missing data and has no tile area. Missing floors are reported in the footer, whose numeric value is the known subtotal; affected building headers also indicate missing data. Invalid responses, missing floor records, and failed requests retain the previous snapshot and show the existing failed-update message.
+
+API reference: https://api.dtc.wide.ad.jp/#tag/crowd (OpenAPI: https://api.dtc.wide.ad.jp/doc).
+
+## Existing per-AP collector
 
 The Worker still runs its existing scheduled job at 03:00 JST. It groups all connected clients by `(buildingKey, accessPointName)` and stores per-AP counts as TOML in a private Cloudflare KV namespace. `/api/wifi/ap-counts/latest.toml` remains available, but is not used by this frontend.
 
-API reference: https://api.dtc.wide.ad.jp/#tag/wifi
+The per-AP collector still uses `/wifi/clients/list` because `/crowd` has no AP-level breakdown. Its schedule, KV records, and TOML endpoint are independent of the frontend's data source.
 
 ## Cloudflare setup
 

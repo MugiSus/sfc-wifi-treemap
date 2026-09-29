@@ -1,6 +1,7 @@
 import type { TreemapDatum } from './components/hierarchy-treemap/layout';
 
 import type { WifiClient } from './types/wifi';
+import type { CrowdSnapshot } from './types/crowd';
 
 export type { WifiClient, WifiSnapshot } from './types/wifi';
 
@@ -84,4 +85,42 @@ export function buildAccessPointData(clients: WifiClient[]): TreemapDatum[] {
         ? `hsl(${130 * (1 - Math.min(node.clients, 80) / 80)} 68% 41%)`
         : undefined,
   }));
+}
+
+export function buildFloorData(
+  readings: CrowdSnapshot['readings'],
+): TreemapDatum[] {
+  if (readings.length === 0) return [];
+  const buildings = new Map<string, TreemapDatum>();
+  const floors: TreemapDatum[] = [];
+
+  for (const reading of readings) {
+    const building = reading.buildingKey;
+    const count = reading.clientCount;
+    if (!buildings.has(building)) {
+      buildings.set(building, {
+        id: building,
+        parentId: 'campus',
+        name: building,
+        label: building.charAt(0).toUpperCase() + building.slice(1),
+      });
+    }
+    if (count === null) {
+      // Missing floors have no area; the remaining sum is only a subtotal.
+      buildings.get(building)!.valueLabel = '一部観測なし';
+    }
+    floors.push({
+      id: reading.areaKey,
+      parentId: building,
+      name: reading.areaKey,
+      value: count ?? undefined,
+      valueLabel: count === null ? '観測なし' : undefined,
+      color:
+        count === null
+          ? undefined
+          : `hsl(${130 * (1 - Math.min(count, 80) / 80)} 68% 41%)`,
+    });
+  }
+
+  return [{ id: 'campus', name: 'SFC' }, ...buildings.values(), ...floors];
 }

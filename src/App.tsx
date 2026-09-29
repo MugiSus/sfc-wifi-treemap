@@ -1,7 +1,8 @@
 import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import HierarchyTreemap from './components/hierarchy-treemap';
-import { buildAccessPointData, type WifiSnapshot } from './treemap';
-import { loadWifiSnapshot } from './lib/load-wifi-snapshot';
+import { buildFloorData } from './treemap';
+import { loadCrowdSnapshot } from './lib/load-crowd-snapshot';
+import type { CrowdSnapshot } from './types/crowd';
 
 const REFRESH_MS = 5 * 60 * 1000;
 const refreshBucket = (time: number) => Math.floor(time / REFRESH_MS);
@@ -14,10 +15,25 @@ const TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
 });
 
 export default function App() {
-  const [snapshot, setSnapshot] = createSignal<WifiSnapshot | null>(null);
+  const [snapshot, setSnapshot] = createSignal<CrowdSnapshot | null>(null);
   const [error, setError] = createSignal(false);
-  const data = createMemo(() =>
-    buildAccessPointData(snapshot()?.clients ?? []),
+  const data = createMemo(() => buildFloorData(snapshot()?.readings ?? []));
+  const total = createMemo(
+    () =>
+      snapshot()?.readings.reduce(
+        (sum, reading) => sum + (reading.clientCount ?? 0),
+        0,
+      ) ?? 0,
+  );
+  const missingCount = createMemo(
+    () =>
+      snapshot()?.readings.filter((reading) => reading.clientCount === null)
+        .length ?? 0,
+  );
+  const hasObservation = createMemo(
+    () =>
+      snapshot()?.readings.some((reading) => reading.clientCount !== null) ??
+      false,
   );
 
   onMount(() => {
@@ -28,7 +44,7 @@ export default function App() {
       if (loading) return;
       loading = true;
       try {
-        const next = await loadWifiSnapshot(controller.signal);
+        const next = await loadCrowdSnapshot(controller.signal);
         if (controller.signal.aborted) return;
         setSnapshot(next);
         setError(false);
@@ -66,9 +82,9 @@ export default function App() {
     <HierarchyTreemap
       data={data()}
       class='fixed inset-0'
-      ariaLabel='棟・階・AP別のWi-Fi接続端末数'
+      ariaLabel='棟・階別のWi-Fi接続端末数'
     >
-      <Show when={!snapshot() || snapshot()?.clients.length === 0}>
+      <Show when={!snapshot() || total() === 0}>
         <p
           class='absolute inset-0 flex items-center justify-center text-sm text-muted-foreground'
           role='status'
@@ -76,7 +92,11 @@ export default function App() {
           {error()
             ? 'Wi-Fi接続情報を取得できませんでした。'
             : snapshot()
-              ? '接続中の端末はありません。'
+              ? !hasObservation()
+                ? '観測データはありません。'
+                : missingCount() > 0
+                  ? '観測済みの階に接続中の端末はありません。'
+                  : '接続中の端末はありません。'
               : 'Wi-Fi接続情報を読み込み中…'}
         </p>
       </Show>
@@ -86,8 +106,12 @@ export default function App() {
             class='pointer-events-none fixed right-2 bottom-2 rounded bg-background/85 px-2 py-1 text-xs text-foreground'
             role='status'
           >
-            {TIME_FORMATTER.format(new Date(value().measuredAt))} ·{' '}
-            {value().clients.length}
+            <Show when={value().measuredAt} fallback='観測時刻なし'>
+              {(measuredAt) => TIME_FORMATTER.format(new Date(measuredAt()))}
+            </Show>{' '}
+            · {hasObservation() ? total() : '観測なし'}
+            {missingCount() > 0 ? ` · ${missingCount()}階観測なし` : ''}
+            {value().processingPending ? ' · 最新データを処理中' : ''}
             {error() ? ' · 更新に失敗（前回の観測を表示）' : ''}
           </div>
         )}
