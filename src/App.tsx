@@ -1,11 +1,9 @@
 import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import HierarchyTreemap from './components/hierarchy-treemap';
 import { buildFloorData } from './treemap';
-import { loadCrowdSnapshot } from './lib/load-crowd-snapshot';
+import { subscribeCrowdSnapshots } from './lib/subscribe-crowd-snapshots';
 import type { CrowdSnapshot } from './types/crowd';
 
-const REFRESH_MS = 5 * 60 * 1000;
-const refreshBucket = (time: number) => Math.floor(time / REFRESH_MS);
 const TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
   timeZone: 'Asia/Tokyo',
   month: 'numeric',
@@ -37,45 +35,14 @@ export default function App() {
   );
 
   onMount(() => {
-    const controller = new AbortController();
-    let loading = false;
-
-    const load = async () => {
-      if (loading) return;
-      loading = true;
-      try {
-        const next = await loadCrowdSnapshot(controller.signal);
-        if (controller.signal.aborted) return;
+    const unsubscribe = subscribeCrowdSnapshots(
+      (next) => {
         setSnapshot(next);
         setError(false);
-      } catch {
-        if (!controller.signal.aborted) setError(true);
-      } finally {
-        loading = false;
-      }
-    };
-
-    let lastBucket = refreshBucket(Date.now());
-    void load();
-
-    let refreshTimer = 0;
-    const scheduleRefresh = () => {
-      const delay = REFRESH_MS - (Date.now() % REFRESH_MS) + 1000;
-      refreshTimer = window.setTimeout(() => {
-        const bucket = refreshBucket(Date.now());
-        if (bucket !== lastBucket) {
-          lastBucket = bucket;
-          void load();
-        }
-        scheduleRefresh();
-      }, delay);
-    };
-    scheduleRefresh();
-
-    onCleanup(() => {
-      controller.abort();
-      window.clearTimeout(refreshTimer);
-    });
+      },
+      () => setError(true),
+    );
+    onCleanup(unsubscribe);
   });
 
   return (
@@ -110,9 +77,6 @@ export default function App() {
               {(measuredAt) => TIME_FORMATTER.format(new Date(measuredAt()))}
             </Show>{' '}
             · {hasObservation() ? total() : '観測なし'}
-            {missingCount() > 0 ? ` · ${missingCount()}階観測なし` : ''}
-            {value().processingPending ? ' · 最新データを処理中' : ''}
-            {error() ? ' · 更新に失敗（前回の観測を表示）' : ''}
           </div>
         )}
       </Show>
